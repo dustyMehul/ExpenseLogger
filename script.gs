@@ -1,9 +1,13 @@
 const SPREADSHEET_ID = 'PASTE_YOUR_SPREADSHEET_ID';
 const SHEET_NAME = 'Expenses';
-const PARENT_FOLDER_ID = 'PASTE_YOUR_SPREADSHEET_ID';
+const PARENT_FOLDER_ID = 'PASTE_YOUR_PARENT_DRIVE_FOLDER_ID';
 
 function doPost(e) {
   try {
+    if (!e || !e.postData || !e.postData.contents) {
+      throw new Error('Missing POST data');
+    }
+
     const data = JSON.parse(e.postData.contents);
 
     const amount = data.amount || '';
@@ -11,28 +15,27 @@ function doPost(e) {
     const category = data.category || '';
     const expenseDate = data.date || '';
     const notes = data.notes || '';
-    const imageBase64 = data.imageBase64 || '';
-    const mimeType = data.mimeType || 'image/jpeg';
-    const originalFileName = data.fileName || 'receipt.jpg';
+    const fileBase64 = data.fileBase64 || data.imageBase64 || '';
+    const mimeType = data.mimeType || 'application/octet-stream';
+    const originalFileName = data.fileName || 'expense_file';
 
     if (!expenseDate) {
       throw new Error('Missing field: date');
     }
 
-    if (!imageBase64) {
-      throw new Error('Missing field: imageBase64');
+    if (!fileBase64) {
+      throw new Error('Missing field: fileBase64');
     }
 
-    const monthKey = expenseDate.substring(0, 7); // e.g. 2026-03
-
+    const monthKey = expenseDate.substring(0, 7);
     const parentFolder = DriveApp.getFolderById(PARENT_FOLDER_ID);
     const monthFolder = getOrCreateMonthFolder_(parentFolder, monthKey);
 
-    const extension = getExtensionFromMimeType_(mimeType);
     const safeVendor = vendor ? vendor.replace(/[^\w\-]+/g, '_') : 'expense';
+    const extension = getExtensionFromMimeType_(mimeType, originalFileName);
     const fileName = `${expenseDate}_${safeVendor}_${Date.now()}.${extension}`;
 
-    const cleanBase64 = imageBase64.replace(/^data:.+;base64,/, '');
+    const cleanBase64 = fileBase64.replace(/^data:.+;base64,/, '');
     const bytes = Utilities.base64Decode(cleanBase64);
     const blob = Utilities.newBlob(bytes, mimeType, fileName);
 
@@ -60,7 +63,8 @@ function doPost(e) {
       message: 'Expense logged successfully',
       fileUrl: file.getUrl(),
       fileName: file.getName(),
-      monthKey: monthKey
+      monthKey: monthKey,
+      mimeType: mimeType
     });
 
   } catch (err) {
@@ -76,15 +80,19 @@ function getOrCreateMonthFolder_(parentFolder, monthKey) {
   return folders.hasNext() ? folders.next() : parentFolder.createFolder(monthKey);
 }
 
-function getExtensionFromMimeType_(mimeType) {
+function getExtensionFromMimeType_(mimeType, originalFileName) {
   const map = {
     'image/jpeg': 'jpg',
     'image/jpg': 'jpg',
     'image/png': 'png',
-    'application/pdf': 'pdf',
-    'image/heic': 'heic'
+    'image/heic': 'heic',
+    'application/pdf': 'pdf'
   };
-  return map[mimeType] || 'bin';
+
+  if (map[mimeType]) return map[mimeType];
+
+  const parts = (originalFileName || '').split('.');
+  return parts.length > 1 ? parts.pop().toLowerCase() : 'bin';
 }
 
 function jsonOutput_(obj) {
